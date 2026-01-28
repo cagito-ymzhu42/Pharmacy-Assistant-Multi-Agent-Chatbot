@@ -2,6 +2,20 @@
 
 A state-driven multi-agent system built with **LangGraph**, designed to handle complex, stateful, and multi-turn pharmacy consultations through agent collaboration.
 
+### 🧠 Hybrid RAG & Knowledge Graph
+
+Unlike standard chatbots, this system employs a dual-layer intelligence approach:
+
+* **Knowledge Graph Integration**: Models complex relationships between drugs, contraindications, and symptoms to prevent logic errors in medical advice.
+* **Retrieval-Augmented Generation (RAG)**: Fetches the latest pharmaceutical guidelines and clinical data to ground LLM responses in factual, up-to-date evidence.
+
+### 📍 Simulated Regional Database Querying
+
+The system features a sophisticated **Regional Query Engine** that simulates real-world pharmacy operations across different jurisdictions (e.g., Hong Kong vs. Mainland China):
+
+* **Localization Logic**: Automatically adjusts drug recommendations based on regional availability, naming conventions, and legal regulations.
+* **Dynamic State Routing**: The LangGraph orchestrator routes queries to specific "Regional Database Agents" based on the user's detected or specified location.
+
 ## 🌟 Key Features
 
 * **Multi-Agent Orchestration**: Utilizes LangGraph to manage seamless transitions between specialized agents (e.g., Pharmacologist, Prescription Checker, and Customer Support).
