@@ -8,7 +8,7 @@ from langchain_community.graphs import Neo4jGraph
 llm = ChatOpenAI(
     model="deepseek-chat",
     openai_api_base="https://api.deepseek.com",
-    openai_api_key="sk-d372c135e16a4a3ea52ee95cb9d7e29f", # 替换为您的密钥或从环境变量读取
+    openai_api_key="", # 替换为您的密钥或从环境变量读取
     temperature=0
 )
 
