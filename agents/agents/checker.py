@@ -4,6 +4,7 @@ from langchain_core.output_parsers import PydanticOutputParser
 
 from core.models import AgentState, CheckerFeedback
 from core.config import llm, graph
+from core.catalog import canonical_drug_name
 
 def checker_agent(state: AgentState) -> Dict[str, Any]:
     """
@@ -17,12 +18,12 @@ def checker_agent(state: AgentState) -> Dict[str, Any]:
     
     # 如果没有初步推荐，则无需检查
     if not candidates:
-        return {"checker_feedback": {"is_safe": True, "risks": ["由于没有初步推荐，无需检查。"]}}
+        return {"checker_feedback": {"is_safe": True, "risks": [], "conclusion": "No reference candidate was found."}}
     
     # 如果知识图谱未连接，则跳过深度检查，并给出警告
     if not graph:
         print("警告：Neo4j 未连接，跳过知识图谱检查。")
-        return {"checker_feedback": {"is_safe": True, "risks": ["知识图谱未连接，无法进行深度检查。"]}}
+        return {"checker_feedback": {"is_safe": False, "risks": ["Knowledge graph unavailable."], "conclusion": "The reference check is unavailable. Please ask a pharmacist to review your options."}}
 
     # --------------------------------------------------
     # 步骤 1: 实体链接与用户画像标准化
@@ -34,7 +35,7 @@ def checker_agent(state: AgentState) -> Dict[str, Any]:
         standard_populations = [p['name'] for p in graph.query("MATCH (p:Population) RETURN p.name as name")]
     except Exception as e:
         print(f"从知识图谱获取人群列表失败: {e}")
-        standard_populations = []
+        return {"checker_feedback": {"is_safe": False, "risks": ["Knowledge graph query failed."], "conclusion": "The reference check could not be completed. Please consult a pharmacist."}}
 
     # 1.1 标准化健康背景
     user_health_background = profile.get("health_background", "")
@@ -104,7 +105,7 @@ def checker_agent(state: AgentState) -> Dict[str, Any]:
     
     if all_user_tags:
         for drug in candidates:
-            drug_name = drug['drug_name']
+            drug_name = canonical_drug_name(drug['drug_name'])
             
             # 使用 UNWIND 和 IN 来一次性查询所有标签的风险
             cypher_query = """
@@ -127,6 +128,7 @@ def checker_agent(state: AgentState) -> Dict[str, Any]:
                         kg_risks.append(risk_desc)
             except Exception as e:
                 print(f"知识图谱查询失败: {e}")
+                kg_risks.append("The knowledge graph check could not be completed.")
 
     kg_risks = list(set(kg_risks)) # 去重
     print(f"--- 知识图谱查询到 {len(kg_risks)} 条风险 ---")
@@ -157,9 +159,10 @@ def checker_agent(state: AgentState) -> Dict[str, Any]:
 2.  **风险罗列 (`risks`)**: 清晰地列出所有识别出的风险点。这应该包括知识图谱的发现，以及你基于常识判断出的其他潜在风险（例如，即使知识图谱没有数据，但给儿童推荐成人剂量药物也是风险）。
 3.  **生成最终结论 (`conclusion`)**: 这是最重要的部分。请撰写一段专业、清晰的结论性文字，这段文字未来会展示给用户。
     - **如果 `is_safe` 为 `false`**: 你的结论应该友善但坚定地解释为什么不能推荐药物，点出核心风险（例如“由于您提到的‘严重发烧’情况复杂，自行用药可能延误病情”），并强烈建议用户“尽快咨询医生进行详细诊断”。【不要】在结论中提具体的药名。
-    - **如果 `is_safe` 为 `true`**: 你的结论应该是一段积极的总结，并且【必须明确提及推荐的药品名称】。例如：“根据您提供的信息，您的情况比较清晰，初步为您推荐的‘幸福伤风素’和‘必理痛’是适合且安全的，可以帮助缓解您的症状。”
+    - **如果 `is_safe` 为 `true`**: 你的结论应该是一段积极的总结，并且【必须明确提及推荐的药品名称】。描述检索与审查结果，并提示由药师确认产品适用性。
 
 # 格式要求:
+Write the risks and user-facing conclusion in English. Preserve Chinese product names when needed. Describe findings as a reference review; avoid guarantees of safety.
 必须严格按照下面的JSON格式输出你的审查结论。
 {format_instructions}
 """
@@ -169,12 +172,17 @@ def checker_agent(state: AgentState) -> Dict[str, Any]:
         response = llm.invoke(prompt)
         parsed_feedback = output_parser.parse(response.content)
         print(f"--- 检查者反馈: {parsed_feedback.model_dump_json(indent=2, ensure_ascii=False)} ---") # 使用 model_dump_json 更规范
-        return {"checker_feedback": parsed_feedback.model_dump()} # 使用 model_dump() 替代 dict()
+        feedback = parsed_feedback.model_dump()
+        if kg_risks:
+            feedback["is_safe"] = False
+            feedback["risks"] = list(dict.fromkeys(kg_risks + feedback["risks"]))
+            feedback["conclusion"] = "The reference check found a caution that needs professional review. Please discuss your symptoms and health background with a pharmacist or doctor before choosing a product."
+        return {"checker_feedback": feedback}
     except Exception as e:
         print(f"检查者 Agent 综合评估失败: {e}")
         # 如果评估过程出错，出于安全考虑，默认方案为不安全
         return {"checker_feedback": {
             "is_safe": False, 
-            "risks": ["审查过程中发生内部错误，建议谨慎对待此推荐。"],
-            "conclusion": "抱歉，内部系统在进行安全审查时遇到问题。为确保您的安全，我们暂时无法提供药品建议，强烈建议您咨询专业医生。"
+            "risks": ["The reference review could not be completed."],
+            "conclusion": "The review could not be completed. Please consult a pharmacist or doctor for advice."
         }}

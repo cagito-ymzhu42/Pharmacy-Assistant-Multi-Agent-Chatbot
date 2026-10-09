@@ -4,6 +4,7 @@ from langchain_core.output_parsers import PydanticOutputParser
 
 from core.models import AgentState, Recommendation
 from core.config import llm, vectorstore
+from core.catalog import canonical_drug_name
 
 
 def recommender_agent(state: AgentState) -> Dict[str, Any]:
@@ -72,6 +73,7 @@ def recommender_agent(state: AgentState) -> Dict[str, Any]:
 # 2. 检索到的参考文档 (这些文档是基于扩展查询找到的，可能相关，也可能完全不相关):
 {docs_content}
 # 你的工作流程:
+Write recommendation reasons in English. Preserve the product names from the references.
 1.  **严格评估文档相关性**: 首先，请仔细判断每一份参考文档是否真的与用户的病情 '{original_query}' 相关。例如，如果用户是伤风，而文档是关于肌肉拉伤的，那么这份文档就是不相关的。
 2.  **忽略不相关信息**: 在生成推荐时，你必须【完全忽略】所有不相关的文档内容。
 3.  **生成推荐**: 基于用户的画像，并【仅结合相关的参考文档和你自身的专业知识】，生成药品推荐。如果所有文档都不相关，请完全依赖你的专业知识进行推荐。
@@ -88,7 +90,7 @@ def recommender_agent(state: AgentState) -> Dict[str, Any]:
         print(f"--- [Recommender] 生成的初步推荐: {[drug.drug_name for drug in parsed_output.recommended_drugs]} ---")
         
         # 使用 model_dump() 替代已弃用的 dict()
-        return {"candidates": [drug.model_dump() for drug in parsed_output.recommended_drugs]}
+        return {"candidates": [dict(drug.model_dump(), drug_name=canonical_drug_name(drug.drug_name)) for drug in parsed_output.recommended_drugs]}
     except Exception as e:
         print(f"初步推荐生成失败: {e}")
         return {"candidates": []}

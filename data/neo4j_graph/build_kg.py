@@ -1,20 +1,12 @@
 from langchain_community.graphs import Neo4jGraph
 
-# 1. 连接到本地 Neo4j
-graph = Neo4jGraph(
-    url="bolt://localhost:7687",
-    username="neo4j",
-    password="medicine4demo"
-)
-
 def setup_knowledge_graph_with_wongtoyick(graph: Neo4jGraph):
     """
     使用直接执行 Cypher 查询的方式，构建并填充包含“黄道益活络油”的知识图谱。
     """
     print("--- 正在构建包含“黄道益活络油”的香港本地化知识图谱... ---")
     
-    # 清空数据库，方便重复运行脚本
-    graph.query("MATCH (n) DETACH DELETE n")
+    # MERGE makes repeated imports reuse the project records.
 
     # --- 步骤 1: 定义所有数据 (已更新) ---
     # 实体数据
@@ -98,6 +90,15 @@ def setup_knowledge_graph_with_wongtoyick(graph: Neo4jGraph):
 
 # --- 执行函数并验证 ---
 if __name__ == "__main__":
+    import os
+    from pathlib import Path
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+    graph = Neo4jGraph(
+        url=os.getenv("NEO4J_URI", "neo4j://127.0.0.1:7687"),
+        username=os.getenv("NEO4J_USER", "neo4j"),
+        password=os.environ["NEO4J_PASSWORD"],
+    )
     # 调用函数来构建图谱
     setup_knowledge_graph_with_wongtoyick(graph)
     

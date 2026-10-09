@@ -1,4 +1,5 @@
 from langchain_core.tools import tool
+from core.catalog import canonical_drug_name, canonical_district
 
 @tool
 def check_nearby_pharmacy_stock(drug_name: str, district: str) -> str:
@@ -14,7 +15,7 @@ def check_nearby_pharmacy_stock(drug_name: str, district: str) -> str:
         "港岛": {
             "必理痛": ["屈臣氏 (铜锣湾时代广场店)", "屈臣氏 (中环皇后大道中店)", "屈臣氏 (太古城中心店)"],
             "幸福伤风素": ["屈臣氏 (中环皇后大道中店)"],
-            "黄道益": ["屈臣氏 (中环皇后大道中店)"],
+            "黄道益活络油": ["屈臣氏 (中环皇后大道中店)"],
             "保济丸": ["屈臣氏 (铜锣湾时代广场店)"],
             "双飞人": ["屈臣氏 (太古城中心店)"],
             "无比滴": ["屈臣氏 (中环皇后大道中店)", "屈臣氏 (太古城中心店)"],
@@ -39,7 +40,8 @@ def check_nearby_pharmacy_stock(drug_name: str, district: str) -> str:
     }
     
     valid_districts = ["港岛", "九龙", "新界"]
-    matched_district = next((d for d in valid_districts if d in district), None)
+    matched_district = canonical_district(district)
+    drug_name = canonical_drug_name(drug_name)
             
     if not matched_district:
         return f"抱歉，请输入有效的区域：港岛、九龙或新界。"

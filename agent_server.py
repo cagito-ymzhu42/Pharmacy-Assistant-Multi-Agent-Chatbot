@@ -1,103 +1,113 @@
+"""FastAPI chat endpoint and the English browser workspace."""
+import argparse
 import copy
-import sys
+import logging
+import os
+import threading
 import uuid
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Any
+
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-# 检查核心模块是否加载成功
-from core.config import check_modules_loaded
-if not check_modules_loaded():
-    sys.exit(1)
-
-# 导入编译好的工作流和初始状态模板
-from agents.workflow import app
-from core.models import AgentState
-
-# --- FastAPI 应用设置 ---
-api = FastAPI(
-    title="智能药房Agent API",
-    description="一个通过API暴露的多智能体药房导购服务",
-    version="1.0.0",
-)
-
-# --- 会话状态管理 ---
-# 注意：这是一个简单的内存存储，不适用于生产环境。
-# 在生产中，应使用Redis、数据库或其他持久化存储。
-session_states: dict[str, AgentState] = {}
-
-initial_state_template: AgentState = {
-    "messages": [],
-    "profile": {},
-    "candidates": [],
-    "checker_feedback": None,
-    "session_complete": False,
+ROOT = Path(__file__).resolve().parent
+INITIAL_STATE = {
+    "messages": [], "profile": {}, "candidates": [],
+    "checker_feedback": None, "session_complete": False,
 }
 
-# --- API 请求和响应模型 ---
+
 class ChatRequest(BaseModel):
-    query: str
-    session_id: str | None = Field(None, description="会话ID。如果为空，将创建一个新会话。")
+    query: str = Field(min_length=1)
+    session_id: str | None = None
+
 
 class ChatResponse(BaseModel):
     reply: str
     session_id: str
     session_complete: bool
+    profile: dict[str, Any] = Field(default_factory=dict)
+    candidates: list[dict[str, Any]] = Field(default_factory=list)
+    checker_feedback: dict[str, Any] | None = None
+    steps: list[str] = Field(default_factory=list)
 
-# --- API 端点 ---
-@api.post("/chat", response_model=ChatResponse)
-def chat_endpoint(request: ChatRequest):
-    """
-    与智能药房Agent进行对话。
-    """
-    session_id = request.session_id or str(uuid.uuid4())
-    
-    # 获取或创建会话状态
-    current_state = session_states.get(session_id)
-    if not current_state:
-        current_state = copy.deepcopy(initial_state_template)
 
-    # 更新状态
-    current_state["messages"].append(("user", request.query))
-    current_state["session_complete"] = False
+def create_api(demo=False, workflow=None):
+    @asynccontextmanager
+    async def lifespan(api):
+        if not demo and api.state.workflow is None:
+            from agents.workflow import app
+            api.state.workflow = app
+        yield
 
-    # 调用Agent工作流
-    try:
-        final_state = app.invoke(current_state)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Agent执行出错: {e}")
+    api = FastAPI(title="Pharmacy Assistant", version="1.1.0", lifespan=lifespan)
+    api.state.workflow = workflow
+    sessions = {}
+    # Serialize local consultations so two requests cannot overwrite a session.
+    consultation_lock = threading.Lock()
 
-    # 提取最终回复
-    last_msg_for_user = "抱歉，我无法处理您的请求。"
-    if final_state.get("messages"):
-        for msg in reversed(final_state["messages"]):
-            if hasattr(msg, 'content') and msg.content and not hasattr(msg, 'tool_calls'):
-                last_msg_for_user = msg.content
-                break
-            elif isinstance(msg, str):
-                last_msg_for_user = msg
-                break
+    @api.get("/status")
+    def status():
+        return {"mode": "demo" if demo else "live", "live_chat": api.state.workflow is not None}
 
-    # 更新或清除会话状态
-    session_complete = final_state.get("session_complete", False)
-    if session_complete:
-        if session_id in session_states:
-            del session_states[session_id]
-        print(f"--- [Server] 会话 {session_id} 已结束并清除。 ---")
-    else:
-        session_states[session_id] = final_state
-        print(f"--- [Server] 会话 {session_id} 已更新。 ---")
+    @api.post("/chat", response_model=ChatResponse)
+    def chat_endpoint(request: ChatRequest):
+        if not request.query.strip():
+            raise HTTPException(422, "Please enter a message.")
+        if api.state.workflow is None:
+            raise HTTPException(503, "Guided demo mode. Start the configured server in live mode to send messages.")
+        session_id = request.session_id or str(uuid.uuid4())
+        with consultation_lock:
+            current_state = copy.deepcopy(sessions.get(session_id, INITIAL_STATE))
+            current_state["messages"].append(("user", request.query.strip()))
+            current_state["session_complete"] = False
+            final_state, steps = current_state, []
+            try:
+                for mode, update in api.state.workflow.stream(current_state, stream_mode=["updates", "values"]):
+                    if mode == "values":
+                        final_state = update
+                    else:
+                        steps.extend(update.keys())
+            except Exception:
+                logging.exception("Consultation workflow failed")
+                raise HTTPException(500, "The consultation could not be completed. Please retry your message.")
+            reply = next((message for message in reversed(final_state["messages"]) if isinstance(message, str)), "Please ask a pharmacist to review your question.")
+            complete = final_state.get("session_complete", False)
+            if complete:
+                sessions.pop(session_id, None)
+            else:
+                sessions[session_id] = final_state
+            return ChatResponse(
+                reply=reply, session_id=session_id, session_complete=complete,
+                profile=final_state.get("profile", {}),
+                candidates=final_state.get("candidates", []),
+                checker_feedback=final_state.get("checker_feedback"), steps=steps,
+            )
 
-    return ChatResponse(
-        reply=last_msg_for_user,
-        session_id=session_id,
-        session_complete=session_complete
-    )
+    @api.delete("/sessions/{session_id}")
+    def reset_session(session_id: str):
+        with consultation_lock:
+            sessions.pop(session_id, None)
+        return {"reset": True}
 
-@api.get("/")
-def root():
-    return {"message": "智能药房Agent服务器已启动。请访问 /docs 查看API文档。"}
+    @api.get("/")
+    def root():
+        return RedirectResponse("/ui/")
+
+    api.mount("/ui", StaticFiles(directory=ROOT / "web", html=True), name="ui")
+    return api
+
+
+api = create_api(demo=os.getenv("PHARMACY_DEMO") == "1")
 
 if __name__ == "__main__":
     import uvicorn
-    print("启动FastAPI服务器，访问 http://127.0.0.1:8000")
-    uvicorn.run(api, host="127.0.0.1", port=8000)
+    parser = argparse.ArgumentParser(description="Pharmacy Assistant API and English UI")
+    parser.add_argument("--demo", action="store_true", help="Serve guided examples using only the UI dependencies")
+    parser.add_argument("--port", type=int, default=8001)
+    args = parser.parse_args()
+    uvicorn.run(create_api(demo=args.demo), host="127.0.0.1", port=args.port)

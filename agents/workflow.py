@@ -74,7 +74,11 @@ def create_workflow():
     workflow.add_node("recommender_agent", recommender_agent)
     workflow.add_node("checker_agent", checker_agent)
     workflow.add_node("final_responder", final_responder)
-    workflow.add_node("tool_node", tool_node)
+    def run_tools(state):
+        update = tool_node.invoke(state)
+        return {"messages": state["messages"] + update["messages"]}
+
+    workflow.add_node("tool_node", run_tools)
     workflow.add_node("final_response_generator", final_response_generator)
 
     workflow.set_entry_point("profile_agent")

@@ -1,7 +1,7 @@
 import requests
 import uuid
 
-API_URL = "http://127.0.0.1:8000/chat"
+API_URL = "http://127.0.0.1:8001/chat"
 
 def main():
     """一个简单的命令行客户端，用于与FastAPI服务器交互。"""
@@ -24,7 +24,7 @@ def main():
                 "session_id": session_id
             }
 
-            response = requests.post(API_URL, json=payload)
+            response = requests.post(API_URL, json=payload, timeout=180)
             response.raise_for_status()  # 如果HTTP状态码是4xx或5xx，则抛出异常
 
             data = response.json()

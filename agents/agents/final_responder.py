@@ -2,6 +2,7 @@ from typing import Dict, Any
 from langchain_core.messages import AIMessage, ToolCall
 
 from core.models import AgentState
+from core.catalog import canonical_district, canonical_drug_name
 
 def final_responder(state: AgentState) -> Dict[str, Any]:
     """
@@ -17,7 +18,7 @@ def final_responder(state: AgentState) -> Dict[str, Any]:
 
     # 路径 1: 检查者“一票否决”。这是最高优先级的判断。
     if not feedback or not feedback.get("is_safe", False):
-        rejection_conclusion = feedback.get("conclusion", "为确保您的安全，我们暂时无法提供药品建议，强烈建议您咨询专业医生。") if feedback else "内部审查系统出错，为安全起见，建议咨询医生。"
+        rejection_conclusion = feedback.get("conclusion", "Please consult a pharmacist or doctor to review your options.") if feedback else "The review could not be completed. Please consult a pharmacist or doctor."
         print(f"--- [综合 Agent] 方案被否决。理由: {rejection_conclusion} ---")
         return {
             "messages": state["messages"] + [rejection_conclusion], 
@@ -28,22 +29,23 @@ def final_responder(state: AgentState) -> Dict[str, Any]:
     
     if not candidates:
         return {
-            "messages": state["messages"] + ["根据您提供的信息，我暂时未能找到合适的药品推荐。"],
+            "messages": state["messages"] + ["I could not identify a suitable product in the references. A pharmacist can help review your options."],
             "session_complete": True
         }
         
     # 路径 2: 缺少地区信息，需要追问。
-    if not profile.get("region"):
+    district = canonical_district(profile.get("region") or "")
+    if not district:
         drug_names = "、".join([c['drug_name'] for c in candidates])
-        positive_conclusion = feedback.get("conclusion", f"根据您的情况，我初步为您推荐了 {drug_names}。")
-        ask_location_prompt = f"{positive_conclusion} 为咗帮你稳附近边间屈臣氏有货，可唔可以话我知你大概喺边区？（例如：港岛、九龙、新界）"
+        positive_conclusion = feedback.get("conclusion", f"The reference search identified {drug_names}.")
+        ask_location_prompt = f"{positive_conclusion} Which area should I search: Hong Kong Island, Kowloon, or the New Territories?"
         return {"messages": state["messages"] + [ask_location_prompt]}
         
     # ==============================================================================
     # 路径 3: (核心修改) 所有信息齐全，直接构造工具调用，避免逻辑重复。
     # ==============================================================================
-    drug_to_check = candidates[0]['drug_name']
-    district_to_check = profile['region']
+    drug_to_check = canonical_drug_name(candidates[0]['drug_name'])
+    district_to_check = district
     
     print(f"--- [综合 Agent] 方案检查通过，直接为 '{drug_to_check}' 在 '{district_to_check}' 构造工具调用 ---")
     

@@ -45,7 +45,7 @@ def final_response_generator(state: AgentState) -> Dict[str, Any]:
 3.  最后，附上详细的库存查询结果。
 4.  在结尾处，务必加上一句温馨提示，例如“建议您去之前最好先致电药房确认一下库存，以免白行一趟。”
 
-请直接生成最终的回复内容，不要包含任何额外的解释或标题。
+Write the final response in English. Keep Chinese product names alongside any English names. Clearly label the stock results as simulated inventory and recommend contacting the store for current availability. Do not claim a clinical diagnosis or guarantee product safety.
 """
     
     # 调用 LLM 生成最终回复

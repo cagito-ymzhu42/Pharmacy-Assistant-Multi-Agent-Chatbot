@@ -1,21 +1,22 @@
-# 核心框架 (Core Framework)
-langchain>=0.3.0
-langchain-community>=0.3.0
-langgraph>=0.2.0
+# Agent workflow and model adapters
+langchain>=0.3.0,<0.4
+langchain-core>=0.3.78,<0.4
+langchain-community>=0.3.0,<0.4
+langchain-openai>=0.3.35,<0.4
+langgraph>=0.2.76,<0.3
 
-# 大语言模型接口 (LLM Providers)
-# 默认推荐 OpenAI，可根据需要替换为 langchain-anthropic 或 langchain-google-genai
-langchain-openai>=0.2.0
+# API and browser UI
+fastapi>=0.115,<1
+uvicorn>=0.30,<1
+httpx>=0.27,<1
+requests>=2.31,<3
 
-# 异步与服务器 (Server & Async)
-fastapi>=0.100.0
-uvicorn>=0.23.0
-httpx>=0.24.0
+# Knowledge stores and text embeddings
+sentence-transformers>=3,<6
+faiss-cpu>=1.8,<2
+neo4j>=5.20,<6
 
-# 环境变量与实用工具 (Utilities)
-python-dotenv>=1.0.0
-pydantic>=2.0.0
-typing-extensions>=4.5.0
-
-# 数据处理 (Data Handling - 可选)
-pandas>=2.0.0
+# Configuration and schemas
+python-dotenv>=1,<2
+pydantic>=2.7,<3
+typing-extensions>=4.12,<5
